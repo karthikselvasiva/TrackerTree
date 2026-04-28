@@ -164,14 +164,20 @@ export default function UpiScanPage() {
       return;
     }
 
-    setSaving(true);
+    // 1. INSTANTLY open UPI app — no waiting
+    const intentUrl = buildUpiIntent(upiData, editAmount);
+    window.location.href = intentUrl;
 
-    // 1. Log the transaction in TrackerTree
+    // 2. Update UI immediately
+    setStep('confirmed');
+    toast.success('Transaction tracked!');
+
+    // 3. Save transaction in background (non-blocking)
     const catName = autoCategorizeTxn(upiData.pn + ' ' + upiData.tn);
     const cat = catName ? findCategoryByName(catName, categories) : null;
     const fallback = categories.find(c => c.type === 'expense');
 
-    const txnData = {
+    supabase.from('transactions').insert({
       user_id: user.id,
       amount: amount,
       type: 'expense' as const,
@@ -182,35 +188,10 @@ export default function UpiScanPage() {
       notes: `${upiData.pn || 'UPI Payment'} ${upiData.tn ? '- ' + upiData.tn : ''}`.trim(),
       upi_ref: upiData.tr || '',
       tags: null,
-    };
-
-    const { error } = await supabase.from('transactions').insert(txnData);
-
-    if (error) {
-      toast.error('Failed to save transaction');
-      console.error(error);
-      setSaving(false);
-      return;
-    }
-
-    // 2. Log a notification
-    await supabase.from('notifications').insert({
-      user_id: user.id,
-      title: `Payment of ${formatCurrency(amount)}`,
-      message: `To ${upiData.pn || upiData.pa} via UPI`,
-      type: 'system',
+    }).then(({ error }) => {
+      if (error) console.error('Failed to save transaction:', error);
+      fetchRecent();
     });
-
-    setSaving(false);
-    setStep('confirmed');
-    toast.success('Transaction tracked!');
-    fetchRecent();
-
-    // 3. Open UPI app after a brief delay
-    setTimeout(() => {
-      const intentUrl = buildUpiIntent(upiData, editAmount);
-      window.location.href = intentUrl;
-    }, 800);
   };
 
   // ─── Cancel ───
