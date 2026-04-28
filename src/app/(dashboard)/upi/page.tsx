@@ -56,16 +56,21 @@ function parseUpiUrl(raw: string): ParsedUPI | null {
 
 // ─── Build UPI intent URL ───
 function buildUpiIntent(data: ParsedUPI, overrideAmount?: string): string {
-  const params = new URLSearchParams();
-  params.set('pa', data.pa);
-  if (data.pn) params.set('pn', data.pn);
-  const amount = overrideAmount || data.am;
-  if (amount) params.set('am', amount);
-  params.set('cu', data.cu || 'INR');
-  if (data.tn) params.set('tn', data.tn);
-  if (data.tr) params.set('tr', data.tr);
-  if (data.mc) params.set('mc', data.mc);
-  return `upi://pay?${params.toString()}`;
+  // If amount wasn't changed, use the ORIGINAL QR URL as-is (most reliable)
+  if (!overrideAmount || overrideAmount === data.am) {
+    return data.url;
+  }
+
+  // Otherwise build a minimal URL — only essential params
+  // DO NOT include mc/tr — those are merchant-specific tokens that
+  // cause "can't send money to this person" errors when reused
+  const parts: string[] = [];
+  parts.push('pa=' + encodeURIComponent(data.pa));
+  if (data.pn) parts.push('pn=' + encodeURIComponent(data.pn));
+  parts.push('am=' + encodeURIComponent(overrideAmount));
+  parts.push('cu=INR');
+  if (data.tn) parts.push('tn=' + encodeURIComponent(data.tn));
+  return 'upi://pay?' + parts.join('&');
 }
 
 export default function UpiScanPage() {
