@@ -41,9 +41,10 @@ function parseUpiUrl(raw: string): ParsedUPI | null {
     const parsed = new URL(normalized);
     return {
       pa: parsed.searchParams.get('pa') || '',
-      pn: decodeURIComponent(parsed.searchParams.get('pn') || ''),
+      // URLSearchParams.get() already decodes percent-encoded values
+      pn: parsed.searchParams.get('pn') || '',
       am: parsed.searchParams.get('am') || '',
-      tn: decodeURIComponent(parsed.searchParams.get('tn') || ''),
+      tn: parsed.searchParams.get('tn') || '',
       cu: parsed.searchParams.get('cu') || 'INR',
       mc: parsed.searchParams.get('mc') || '',
       tr: parsed.searchParams.get('tr') || '',
@@ -58,15 +59,22 @@ function parseUpiUrl(raw: string): ParsedUPI | null {
 // ALWAYS build a clean, minimal URL. Original QR URLs contain
 // merchant-specific tokens (sign, orgid, mode, mc, tr) that are
 // one-time-use or context-bound and cause UPI apps to reject payment.
+//
+// IMPORTANT: Do NOT use encodeURIComponent here!
+// UPI intent URLs are consumed by native apps (GPay, PhonePe, Paytm),
+// not web browsers. Encoding turns `@` into `%40` which breaks the
+// payee address lookup and causes "can't send money" errors.
 function buildUpiIntent(data: ParsedUPI, overrideAmount?: string): string {
   const amount = overrideAmount || data.am;
-  const parts: string[] = [];
-  parts.push('pa=' + encodeURIComponent(data.pa));
-  if (data.pn) parts.push('pn=' + encodeURIComponent(data.pn));
-  if (amount) parts.push('am=' + encodeURIComponent(amount));
-  parts.push('cu=INR');
-  if (data.tn) parts.push('tn=' + encodeURIComponent(data.tn));
-  return 'upi://pay?' + parts.join('&');
+  // Format amount to max 2 decimal places, no trailing zeros
+  const formattedAmount = amount ? parseFloat(amount).toFixed(2).replace(/\.?0+$/, '') : '';
+
+  let url = 'upi://pay?pa=' + data.pa;
+  if (data.pn) url += '&pn=' + data.pn;
+  if (formattedAmount) url += '&am=' + formattedAmount;
+  url += '&cu=INR';
+  if (data.tn) url += '&tn=' + data.tn;
+  return url;
 }
 
 // ─── Launch UPI app reliably ───
