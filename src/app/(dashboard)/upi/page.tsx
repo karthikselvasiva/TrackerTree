@@ -55,22 +55,31 @@ function parseUpiUrl(raw: string): ParsedUPI | null {
 }
 
 // ─── Build UPI intent URL ───
+// ALWAYS build a clean, minimal URL. Original QR URLs contain
+// merchant-specific tokens (sign, orgid, mode, mc, tr) that are
+// one-time-use or context-bound and cause UPI apps to reject payment.
 function buildUpiIntent(data: ParsedUPI, overrideAmount?: string): string {
-  // If amount wasn't changed, use the ORIGINAL QR URL as-is (most reliable)
-  if (!overrideAmount || overrideAmount === data.am) {
-    return data.url;
-  }
-
-  // Otherwise build a minimal URL — only essential params
-  // DO NOT include mc/tr — those are merchant-specific tokens that
-  // cause "can't send money to this person" errors when reused
+  const amount = overrideAmount || data.am;
   const parts: string[] = [];
   parts.push('pa=' + encodeURIComponent(data.pa));
   if (data.pn) parts.push('pn=' + encodeURIComponent(data.pn));
-  parts.push('am=' + encodeURIComponent(overrideAmount));
+  if (amount) parts.push('am=' + encodeURIComponent(amount));
   parts.push('cu=INR');
   if (data.tn) parts.push('tn=' + encodeURIComponent(data.tn));
   return 'upi://pay?' + parts.join('&');
+}
+
+// ─── Launch UPI app reliably ───
+// Using a temporary <a> tag click is far more reliable than
+// window.location.href for launching deep links on mobile browsers.
+function launchUpiApp(intentUrl: string) {
+  const link = document.createElement('a');
+  link.href = intentUrl;
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  // Clean up after a short delay
+  setTimeout(() => document.body.removeChild(link), 100);
 }
 
 export default function UpiScanPage() {
@@ -171,7 +180,7 @@ export default function UpiScanPage() {
 
     // 1. INSTANTLY open UPI app — no waiting
     const intentUrl = buildUpiIntent(upiData, editAmount);
-    window.location.href = intentUrl;
+    launchUpiApp(intentUrl);
 
     // 2. Update UI immediately
     setStep('confirmed');
@@ -359,11 +368,10 @@ export default function UpiScanPage() {
                 onChange={e => setEditAmount(e.target.value)}
                 placeholder="0"
                 className="w-full pl-10 pr-4 py-4 text-3xl font-extrabold text-center bg-[var(--bg-tertiary)] border-2 border-[var(--border)] rounded-2xl focus:border-[var(--accent)] focus:outline-none transition-colors text-[var(--text-primary)]"
-                readOnly={!!upiData.am}
               />
             </div>
             {upiData.am && (
-              <p className="text-xs text-[var(--text-muted)] mt-1 text-center">Amount fixed by merchant</p>
+              <p className="text-xs text-[var(--text-muted)] mt-1 text-center">Amount suggested by merchant (you can edit)</p>
             )}
           </div>
 
@@ -406,7 +414,7 @@ export default function UpiScanPage() {
           </p>
           <Button
             onClick={() => {
-              if (upiData) window.location.href = buildUpiIntent(upiData, editAmount);
+              if (upiData) launchUpiApp(buildUpiIntent(upiData, editAmount));
             }}
             size="lg"
             className="w-full gap-2"
