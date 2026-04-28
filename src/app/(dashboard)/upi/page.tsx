@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   ScanLine, X, CheckCircle2, ExternalLink, ArrowUpRight,
-  Smartphone, IndianRupee, Clock, AlertCircle, Camera
+  Smartphone, IndianRupee, Clock, AlertCircle, Camera,
+  Copy, Check, Info
 } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -102,8 +103,21 @@ export default function UpiScanPage() {
   const [saving, setSaving] = useState(false);
   const [recentScans, setRecentScans] = useState<Transaction[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
   const scannerRef = useRef<HTMLDivElement>(null);
   const html5QrCodeRef = useRef<unknown>(null);
+
+  // ─── Copy to clipboard helper ───
+  const copyToClipboard = async (text: string, field: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      toast.success(`${field} copied!`);
+      setTimeout(() => setCopiedField(null), 2000);
+    } catch {
+      toast.error('Failed to copy');
+    }
+  };
 
   // ─── Fetch recent UPI scans ───
   const fetchRecent = useCallback(async () => {
@@ -186,13 +200,17 @@ export default function UpiScanPage() {
       return;
     }
 
-    // 1. INSTANTLY open UPI app — no waiting
+    // 1. Try to open UPI app (may be blocked by browser security)
     const intentUrl = buildUpiIntent(upiData, editAmount);
-    launchUpiApp(intentUrl);
+    try {
+      launchUpiApp(intentUrl);
+    } catch {
+      // Intent blocked — user will use copy fallback
+    }
 
-    // 2. Update UI immediately
+    // 2. Update UI immediately — show payment details with copy buttons
     setStep('confirmed');
-    toast.success('Transaction tracked!');
+    toast.success('Transaction tracked! Use details below to pay.');
 
     // 3. Save transaction in background (non-blocking)
     const catName = autoCategorizeTxn(upiData.pn + ' ' + upiData.tn);
@@ -390,36 +408,85 @@ export default function UpiScanPage() {
             size="lg"
             className="w-full py-4 text-base gap-2"
           >
-            <ExternalLink size={20} /> Track & Pay via UPI App
+            <CheckCircle2 size={20} /> Track & Proceed to Pay
           </Button>
 
           <p className="text-[11px] text-center text-[var(--text-muted)]">
-            TrackerTree will save this transaction, then open your UPI app (GPay, PhonePe, Paytm) to complete the payment.
+            TrackerTree will save this transaction and show you the UPI details to complete payment.
           </p>
         </div>
       )}
 
       {/* ══════════ STEP: CONFIRMED ══════════ */}
       {step === 'confirmed' && upiData && (
-        <div className="animate-scale-in text-center space-y-5 pt-8">
-          <div className="w-20 h-20 mx-auto rounded-full bg-[var(--success-light)] flex items-center justify-center">
-            <CheckCircle2 size={40} className="text-[var(--success)]" />
-          </div>
-          <div>
-            <h2 className="text-xl font-extrabold text-[var(--text-primary)]">Transaction Tracked!</h2>
+        <div className="animate-scale-in space-y-5 pt-4">
+          {/* Success header */}
+          <div className="text-center">
+            <div className="w-20 h-20 mx-auto rounded-full bg-[var(--success-light)] flex items-center justify-center">
+              <CheckCircle2 size={40} className="text-[var(--success)]" />
+            </div>
+            <h2 className="text-xl font-extrabold text-[var(--text-primary)] mt-4">Transaction Tracked!</h2>
             <p className="text-sm text-[var(--text-muted)] mt-1">
               ₹{parseFloat(editAmount).toLocaleString('en-IN')} to {upiData.pn || upiData.pa}
             </p>
           </div>
-          <Card className="text-left space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-[var(--text-muted)]">Payee</span><span className="font-semibold">{upiData.pn || upiData.pa}</span></div>
-            <div className="flex justify-between"><span className="text-[var(--text-muted)]">UPI ID</span><span className="font-mono text-xs">{upiData.pa}</span></div>
-            <div className="flex justify-between"><span className="text-[var(--text-muted)]">Amount</span><span className="font-bold text-[var(--danger)]">{formatCurrency(parseFloat(editAmount))}</span></div>
-            <div className="flex justify-between"><span className="text-[var(--text-muted)]">Status</span><span className="badge badge-warning">Pending</span></div>
+
+          {/* Info banner */}
+          <div className="flex items-start gap-3 bg-[var(--info-light,#e0f2fe)] p-3 rounded-xl">
+            <Info size={18} className="text-[var(--info,#0284c7)] flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-[var(--info,#0284c7)]">
+              Open your UPI app (GPay, PhonePe, Paytm) and pay using the details below. Copy the UPI ID with one tap!
+            </p>
+          </div>
+
+          {/* Payment details with copy buttons */}
+          <Card className="space-y-0 overflow-hidden">
+            {/* UPI ID - most important, highlighted */}
+            <div className="p-4 bg-[var(--bg-tertiary)] border-b border-[var(--border)]">
+              <p className="text-xs text-[var(--text-muted)] mb-1">UPI ID (tap to copy)</p>
+              <button
+                onClick={() => copyToClipboard(upiData.pa, 'UPI ID')}
+                className="w-full flex items-center justify-between gap-2 group cursor-pointer"
+              >
+                <span className="font-mono text-base font-bold text-[var(--text-primary)] truncate">
+                  {upiData.pa}
+                </span>
+                <span className="flex-shrink-0 p-2 rounded-lg bg-[var(--accent)] text-white group-hover:scale-105 transition-transform">
+                  {copiedField === 'UPI ID' ? <Check size={16} /> : <Copy size={16} />}
+                </span>
+              </button>
+            </div>
+
+            {/* Payee Name */}
+            <div className="px-4 py-3 flex justify-between items-center border-b border-[var(--border)]">
+              <span className="text-sm text-[var(--text-muted)]">Payee</span>
+              <span className="text-sm font-semibold text-[var(--text-primary)]">{upiData.pn || 'Merchant'}</span>
+            </div>
+
+            {/* Amount - with copy */}
+            <div className="px-4 py-3 flex justify-between items-center border-b border-[var(--border)]">
+              <span className="text-sm text-[var(--text-muted)]">Amount</span>
+              <button
+                onClick={() => copyToClipboard(editAmount, 'Amount')}
+                className="flex items-center gap-2 cursor-pointer group"
+              >
+                <span className="text-sm font-bold text-[var(--danger)]">
+                  {formatCurrency(parseFloat(editAmount))}
+                </span>
+                <span className="text-[var(--text-muted)] group-hover:text-[var(--accent)] transition-colors">
+                  {copiedField === 'Amount' ? <Check size={14} /> : <Copy size={14} />}
+                </span>
+              </button>
+            </div>
+
+            {/* Status */}
+            <div className="px-4 py-3 flex justify-between items-center">
+              <span className="text-sm text-[var(--text-muted)]">Status</span>
+              <span className="badge badge-warning">Pending</span>
+            </div>
           </Card>
-          <p className="text-xs text-[var(--text-muted)]">
-            Opening your UPI app... If it didn&apos;t open automatically:
-          </p>
+
+          {/* Try intent button (may or may not work depending on browser) */}
           <Button
             onClick={() => {
               if (upiData) launchUpiApp(buildUpiIntent(upiData, editAmount));
@@ -427,8 +494,9 @@ export default function UpiScanPage() {
             size="lg"
             className="w-full gap-2"
           >
-            <ExternalLink size={18} /> Open UPI App Manually
+            <ExternalLink size={18} /> Try Opening UPI App
           </Button>
+
           <Button variant="ghost" onClick={resetFlow} className="w-full">
             Scan Another QR
           </Button>
